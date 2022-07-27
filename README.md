@@ -1,2 +1,3 @@
-# blockchain--java
-这是java版的简化示例区块链demo，目前实现了生成区块和pow的功能，正在实现transaction功能
+"#BlockChain" 
+
+

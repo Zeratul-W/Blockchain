@@ -1,88 +1,114 @@
 package com.groupproject.blockchain.bean;
 
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.groupproject.blockchain.utils.RSAUtils;
+import com.groupproject.blockchain.utils.Sha256Util;
+
+import java.io.Serializable;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.util.ArrayList;
 
-public class Transaction {
+@JsonIgnoreProperties({"senderObject"})
+public class Transaction implements Serializable {
 
-    //Each transaction can have multiple inputs and outputs -> each element in the list is a public key to specify
-    // the input and output
-    public ArrayList<TxIn> inputs;
-    public ArrayList<TxOut> outputs;
-    public String transactionId;
+    public String transactionId; //Contains a hash of transaction*
+    public String sender; //Senders address/public key.
+    public PublicKey senderObject; //Senders address/public key.
+    public String recipient; //Recipients address/public key.
+    public float value; //Contains the amount we wish to send to the recipient.
+    public byte[] signature; //This is to prevent anybody else from spending funds in our wallet.
 
-    public double transactionFees;
+    public ArrayList<TxIn> inputs = new ArrayList<TxIn>();
+    public ArrayList<TxOut> outputs = new ArrayList<TxOut>();
 
-    public Transaction(ArrayList<TxIn> inputs, ArrayList<TxOut> outputs, String transactionId, double transactionFees, String signaturedData) {
+    private static int sequence = 0; //A rough count of how many transactions have been generated
+    public boolean isCoinbaseTx = false;
+
+    //Bean Constructor
+    public Transaction(){
+
+    }
+
+    //For Coinbase Transactions
+    public Transaction(String from, PublicKey senderObject, String to, float value) {
+        this.sender = from;
+        this.recipient = to;
+        this.value = value;
+        this.senderObject = senderObject;
+    }
+    // Constructor:
+    public Transaction(String from, PublicKey senderObject, String to, float value, ArrayList<TxIn> inputs) {
+        this.sender = from;
+        this.recipient = to;
+        this.value = value;
         this.inputs = inputs;
-        this.outputs = outputs;
-        this.transactionId = transactionId;
-        this.transactionFees = transactionFees;
-        this.signaturedData = signaturedData;
+        this.senderObject = senderObject;
     }
 
-    public String getTransactionId() {
-        return transactionId;
+    // Called when adding transaction to block
+    public boolean processTransaction() {
+        if(!verifySignature()) {
+            System.out.println("#Transaction Signature failed to verify");
+            return false;
+        }
+        //Gather transaction inputs (Making sure they are unspent):
+        for(TxIn i : inputs) {
+            i.UTXO = BlockChain.UTXOs.get(i.transactionOutputId);
+        }
+        //Check if transaction is valid:
+        if(returnInputsValue() < BlockChain.minimumTransaction) {
+            System.out.println("Transaction Inputs too small: " + returnInputsValue());
+            return false;
+        }
+        //Generate transaction outputs:
+        float leftOver = returnInputsValue() - value; //get value of inputs then the left over change:
+        transactionId = calculateHash();
+        outputs.add(new TxOut( this.recipient, value,transactionId)); //send value to recipient
+        outputs.add(new TxOut( this.sender, leftOver,transactionId)); //send the left over 'change' back to sender
+        //Add outputs to Unspent list
+        for(TxOut o : outputs) {
+            BlockChain.UTXOs.put(o.id , o);
+        }
+        //Remove transaction inputs from UTXO lists as spent:
+        for(TxIn i : inputs) {
+            if(i.UTXO == null) continue; //if Transaction can't be found skip it
+            BlockChain.UTXOs.remove(i.UTXO.id);
+        }
+        return true;
     }
 
-    public void setTransactionId(String transactionId) {
-        this.transactionId = transactionId;
+    public float returnInputsValue() {
+        float total = 0;
+        for(TxIn i : inputs) {
+            if(i.UTXO == null) continue; //if Transaction can't be found skip it, This behavior may not be optimal.
+            total += i.UTXO.value;
+        }
+        return total;
     }
 
-
-    public ArrayList<TxIn> getInputs() {
-        return inputs;
+    public void generateSignature(PrivateKey privateKey) {
+        String data = sender + recipient + Float.toString(value);
+        signature = RSAUtils.getSignature("ECDSA", privateKey, data);
     }
 
-    public void setInputs(ArrayList<TxIn> inputs) {
-        this.inputs = inputs;
+    public boolean verifySignature() {
+        String data = sender + recipient + Float.toString(value);
+        return RSAUtils.verifySignature("ECDSA", this.sender, data, signature);
     }
 
-    public ArrayList<TxOut> getOutputs() {
-        return outputs;
+    public float returnOutputsValue() {
+        float total = 0;
+        for(TxOut o : outputs) {
+            total += o.value;
+        }
+        return total;
     }
 
-    public void setOutputs(ArrayList<TxOut> outputs) {
-        this.outputs = outputs;
+    private String calculateHash() {
+        sequence++; //increase the sequence to avoid 2 identical transactions having the same hash
+        return Sha256Util.applySha256(sender+
+                recipient + Float.toString(value) + sequence);
     }
-
-    public double getTransactionFees() {
-        return transactionFees;
-    }
-
-    public void setTransactionFees(double transactionFees) {
-        this.transactionFees = transactionFees;
-    }
-
-    public String getSignaturedData() {
-        return signaturedData;
-    }
-
-    public void setSignaturedData(String signaturedData) {
-        this.signaturedData = signaturedData;
-    }
-
-    public String signaturedData;
-
-    @Override
-    public String toString() {
-        return "Transaction{" +
-                "inputs=" + inputs +
-                ", outputs=" + outputs +
-                ", transactionFees=" + transactionFees +
-                ", signaturedData='" + signaturedData + '\'' +
-                '}';
-    }
-
-
-    public static String getTransactionId(Transaction transaction){
-
-        //TODO: implement funciton
-        return "";
-
-
-    }
-
-
-
-
 }
